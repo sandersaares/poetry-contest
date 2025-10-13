@@ -15,3 +15,7 @@ rand = "0.9"
 [[bench]]
 name = "memory"
 harness = false
+
+[profile.release]
+# This ensures we have high quality data with proper stack traces when profiling.
+debug = "line-tables-only"

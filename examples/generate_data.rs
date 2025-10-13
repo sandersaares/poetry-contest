@@ -1,6 +1,5 @@
 //! Data set generator for the examples.
 
-use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -16,8 +15,8 @@ fn main() {
     // The workspace root is defined as the directory containing `Cargo.toml`, searching upwards
     // from the current directory.
     //
-    // The manifest is serialized as `manifest.json` in the `data/` directory, and all entry files
-    // are created in the same directory, named `<unique index>.txt`.
+    // The manifest is serialized as `manifest.json` in the `data/` directory, and each round
+    // is created as a separate JSON file in the same directory, named `round_<index>.json`.
 
     let workspace_root = find_workspace_root();
     let data_dir = workspace_root.join("data");
@@ -38,13 +37,25 @@ fn main() {
     }
     println!("Generated {} categories", categories.len());
 
-    // Generate rounds with entries
-    let mut rounds = Vec::with_capacity(ROUND_COUNT);
+    // Generate rounds with entries and write each round to a separate file
+    let mut round_paths = Vec::with_capacity(ROUND_COUNT);
     let mut entry_index = 0;
     for round_idx in 0..ROUND_COUNT {
-        let (round, new_index) = generate_round(&data_dir, entry_index);
-        entry_index = new_index;
-        rounds.push(round);
+        let round = generate_round();
+        entry_index += round.entries.len();
+        
+        // Write round to its own JSON file
+        let round_filename = format!("round_{}.json", round_idx);
+        let round_path = data_dir.join(&round_filename);
+        let round_json = serde_json::to_string_pretty(&round).expect("Failed to serialize round");
+        fs::write(&round_path, round_json).expect(&format!(
+            "Failed to write round file: {}",
+            round_path.display()
+        ));
+        
+        // Store relative path in manifest
+        round_paths.push(PathBuf::from(round_filename));
+        
         if (round_idx + 1) % 10 == 0 || round_idx == ROUND_COUNT - 1 {
             println!(
                 "Generated {}/{} rounds ({} total entries)",
@@ -56,7 +67,7 @@ fn main() {
     }
 
     // Create manifest
-    let manifest = Manifest { categories, rounds };
+    let manifest = Manifest { categories, rounds: round_paths };
 
     // Serialize manifest to JSON
     let manifest_path = data_dir.join("manifest.json");
@@ -69,7 +80,7 @@ fn main() {
     println!("Total entries: {}", entry_index);
 }
 
-const ROUND_COUNT: usize = 200;
+const ROUND_COUNT: usize = 500;
 const CATEGORY_COUNT: usize = 20;
 const AUTHOR_COUNT: usize = 250;
 const MIN_ENTRIES_PER_ROUND: usize = 500;
@@ -77,7 +88,7 @@ const MAX_ENTRIES_PER_ROUND: usize = 2000;
 const MIN_ENTRY_WORDS: usize = 20;
 const MAX_ENTRY_WORDS: usize = 250;
 const MIN_CATEGORY_KEYWORDS: usize = 1;
-const MAX_CATEGORY_KEYWORDS: usize = 100;
+const MAX_CATEGORY_KEYWORDS: usize = 5;
 const LINE_LENGTH_WORDS: usize = 10;
 
 /// How many words there are in the vocabulary we use.
@@ -96,7 +107,8 @@ const VOCABULARY_SIZE: usize = 128_000;
 #[derive(Serialize)]
 struct Manifest {
     categories: Vec<Category>,
-    rounds: Vec<Round>,
+    /// Relative paths from the directory of the manifest file to the round JSON files.
+    rounds: Vec<PathBuf>,
 }
 
 /// One category that entries are evaluated against.
@@ -126,12 +138,8 @@ struct Entry {
     /// Name of the author - the person that any scoring is attributed to.
     author: String,
 
-    /// Relative path from the directory of the manifest file
-    /// to the file containing the entry contents.
-    ///
-    /// This will be a `<unique index>.txt` file in the same directory as the manifest.
-    /// The index is unique across all entries in all rounds, we start from 0 and just increment.
-    path: PathBuf,
+    /// The actual text content of the entry.
+    contents: String,
 }
 
 static VOCABULARY: LazyLock<Vec<String>> = LazyLock::new(|| {
@@ -160,59 +168,43 @@ fn generate_category() -> Category {
     Category { keywords }
 }
 
-fn generate_round(data_dir: &PathBuf, mut entry_index: usize) -> (Round, usize) {
+fn generate_round() -> Round {
     let entry_count = rand::rng().random_range(MIN_ENTRIES_PER_ROUND..=MAX_ENTRIES_PER_ROUND);
     let mut entries = Vec::with_capacity(entry_count);
 
     for _ in 0..entry_count {
-        let entry = generate_entry(data_dir, entry_index);
+        let entry = generate_entry();
         entries.push(entry);
-        entry_index += 1;
     }
 
-    (Round { entries }, entry_index)
+    Round { entries }
 }
 
-thread_local!(static CONTENTS_BUFFER: RefCell<String> = RefCell::new(String::new()));
-
-fn generate_entry(data_dir: &PathBuf, index: usize) -> Entry {
+fn generate_entry() -> Entry {
     let mut rng = rand::rng();
 
     // Generate author (random from 0 to AUTHOR_COUNT-1)
     let author_index = rng.random_range(0..AUTHOR_COUNT).to_string();
 
-    // Generate entry file path
-    let filename = format!("{}.txt", index);
-    let file_path = data_dir.join(&filename);
-
     // Generate entry content
     let word_count = rng.random_range(MIN_ENTRY_WORDS..=MAX_ENTRY_WORDS);
 
-    CONTENTS_BUFFER.with_borrow_mut(|buffer| {
-        for i in 0..word_count {
-            if i > 0 {
-                // Check if we should insert a line break
-                if i % LINE_LENGTH_WORDS == 0 {
-                    buffer.push('\n');
-                } else {
-                    buffer.push(' ');
-                }
+    let mut contents = String::with_capacity(1024);
+    for i in 0..word_count {
+        if i > 0 {
+            // Check if we should insert a line break
+            if i % LINE_LENGTH_WORDS == 0 {
+                contents.push('\n');
+            } else {
+                contents.push(' ');
             }
-
-            buffer.push_str(word());
         }
 
-        // Write the entry content to file
-        fs::write(&file_path, &buffer).expect(&format!(
-            "Failed to write entry file: {}",
-            file_path.display()
-        ));
-
-        buffer.clear();
-    });
+        contents.push_str(word());
+    }
 
     Entry {
         author: author_index,
-        path: PathBuf::from(filename),
+        contents,
     }
 }

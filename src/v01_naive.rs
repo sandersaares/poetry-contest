@@ -55,21 +55,22 @@ pub fn solve() -> u64 {
 
     let mut points_by_author: HashMap<String, u64> = HashMap::new();
 
-    for round in manifest.rounds {
+    for round_path in manifest.rounds {
+        let round_file_path = data_dir.join(&round_path);
+        let round_json = fs::read_to_string(&round_file_path).expect("Failed to read round file");
+        let round: Round = serde_json::from_str(&round_json).unwrap();
+
         let mut active_entries = Vec::<ActiveEntry>::new();
 
         let mut remaining_entries = round.entries;
 
         while let Some(entry) = remaining_entries.pop() {
-            let entry_path = data_dir.join(&entry.path);
-            let content = fs::read_to_string(&entry_path).expect("Failed to read entry file");
-
             // Verify that the entry is not disqualified due to length or emptiness.
-            if content.len() > 1000 {
+            if entry.contents.len() > 1000 {
                 continue;
             }
 
-            if content.trim().is_empty() {
+            if entry.contents.trim().is_empty() {
                 continue;
             }
 
@@ -80,7 +81,7 @@ pub fn solve() -> u64 {
             // removed later.
             if let Some(existing) = active_entries
                 .iter_mut()
-                .find(|existing| existing.content == content)
+                .find(|existing| existing.entry.contents == entry.contents)
             {
                 existing.is_disqualified = true;
 
@@ -90,7 +91,6 @@ pub fn solve() -> u64 {
 
             active_entries.push(ActiveEntry {
                 entry,
-                content,
                 is_disqualified: false,
             });
         }
@@ -105,7 +105,7 @@ pub fn solve() -> u64 {
         // For each active entry, determine its categories and weight, and update
         // the best_by_category map accordingly.
         for active_entry in active_entries {
-            let first_line = active_entry.content.lines().next().unwrap(); // Safe, there is always at least one line.
+            let first_line = active_entry.entry.contents.lines().next().unwrap(); // Safe, there is always at least one line.
 
             let words: Vec<&str> = first_line.split_whitespace().collect();
 
@@ -121,7 +121,7 @@ pub fn solve() -> u64 {
                 }
             }
 
-            let weight = calculate_weight(&active_entry.content);
+            let weight = calculate_weight(&active_entry.entry.contents);
 
             for cat_idx in matched_categories {
                 let entry_author = active_entry.entry.author.clone();
@@ -164,14 +164,13 @@ fn calculate_weight(content: &str) -> f64 {
 /// An entry under evaluation as part of a round.
 struct ActiveEntry {
     entry: Entry,
-    content: String,
     is_disqualified: bool,
 }
 
 #[derive(Deserialize)]
 struct Manifest {
     categories: Vec<Category>,
-    rounds: Vec<Round>,
+    rounds: Vec<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -187,5 +186,5 @@ struct Round {
 #[derive(Deserialize)]
 struct Entry {
     author: String,
-    path: PathBuf,
+    contents: String,
 }
