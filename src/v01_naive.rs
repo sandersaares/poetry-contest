@@ -53,6 +53,18 @@ pub fn solve() -> u64 {
 
     let manifest: Manifest = serde_json::from_str(&manifest_json).unwrap();
 
+    // Build a HashMap for efficient keyword lookup
+    // Key: keyword, Value: list of category indices that contain this keyword
+    let mut keyword_to_categories: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (cat_idx, category) in manifest.categories.iter().enumerate() {
+        for keyword in &category.keywords {
+            keyword_to_categories
+                .entry(keyword.as_str())
+                .or_insert_with(Vec::new)
+                .push(cat_idx);
+        }
+    }
+
     let mut points_by_author: HashMap<String, u64> = HashMap::new();
 
     for round_path in manifest.rounds {
@@ -111,14 +123,19 @@ pub fn solve() -> u64 {
 
             let mut matched_categories = Vec::new();
 
-            for (cat_idx, category) in manifest.categories.iter().enumerate() {
-                if category
-                    .keywords
-                    .iter()
-                    .any(|kw| words.contains(&kw.as_str()))
-                {
-                    matched_categories.push(cat_idx);
+            // Use the keyword lookup HashMap for efficient categorization
+            for word in &words {
+                if let Some(cat_indices) = keyword_to_categories.get(word) {
+                    for &cat_idx in cat_indices {
+                        if !matched_categories.contains(&cat_idx) {
+                            matched_categories.push(cat_idx);
+                        }
+                    }
                 }
+            }
+
+            if matched_categories.is_empty() {
+                continue;
             }
 
             let weight = calculate_weight(&active_entry.entry.contents);
