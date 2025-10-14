@@ -85,11 +85,11 @@ const CATEGORY_COUNT: usize = 20;
 const AUTHOR_COUNT: usize = 250;
 const MIN_ENTRIES_PER_ROUND: usize = 500;
 const MAX_ENTRIES_PER_ROUND: usize = 2000;
-const MIN_ENTRY_WORDS: usize = 20;
-const MAX_ENTRY_WORDS: usize = 250;
+const MIN_ENTRY_WORDS: usize = 50;
+const MAX_ENTRY_WORDS: usize = 500;
 const MIN_CATEGORY_KEYWORDS: usize = 1;
 const MAX_CATEGORY_KEYWORDS: usize = 5;
-const LINE_LENGTH_WORDS: usize = 10;
+const LINE_LENGTH_WORDS: usize = 32;
 
 /// How many words there are in the vocabulary we use.
 ///
@@ -137,6 +137,9 @@ struct Round {
 struct Entry {
     /// Name of the author - the person that any scoring is attributed to.
     author: String,
+
+    /// The title of the entry, used for category matching.
+    title: String,
 
     /// The actual text content of the entry.
     contents: String,
@@ -186,11 +189,21 @@ fn generate_entry() -> Entry {
     // Generate author (random from 0 to AUTHOR_COUNT-1)
     let author_index = rng.random_range(0..AUTHOR_COUNT).to_string();
 
-    // Generate entry content
+    // Generate title (first LINE_LENGTH_WORDS words)
+    let mut title = String::with_capacity(128);
+    for i in 0..LINE_LENGTH_WORDS {
+        if i > 0 {
+            title.push(' ');
+        }
+        title.push_str(word());
+    }
+
+    // Generate entry content (remaining words)
     let word_count = rng.random_range(MIN_ENTRY_WORDS..=MAX_ENTRY_WORDS);
+    let content_word_count = word_count.saturating_sub(LINE_LENGTH_WORDS);
 
     let mut contents = String::with_capacity(1024);
-    for i in 0..word_count {
+    for i in 0..content_word_count {
         if i > 0 {
             // Check if we should insert a line break
             if i % LINE_LENGTH_WORDS == 0 {
@@ -205,6 +218,7 @@ fn generate_entry() -> Entry {
 
     Entry {
         author: author_index,
+        title,
         contents,
     }
 }
