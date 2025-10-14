@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
@@ -94,7 +95,7 @@ fn solve_round<'manifest, 'round>(
 
     // Key: category index.
     // Value: (best weight, list of authors with that weight).
-    let mut best_by_category: HashMap<usize, (f64, Vec<&'round str>)> = HashMap::new();
+    let mut best_by_category: HashMap<usize, (f64, Vec<Cow<'round, str>>)> = HashMap::new();
 
     // For each active entry, determine its categories and weight, and update
     // the best_by_category map accordingly.
@@ -121,7 +122,7 @@ fn solve_round<'manifest, 'round>(
         let weight = calculate_weight(&active_entry.entry.contents);
 
         for cat_idx in matched_categories {
-            let entry_author = active_entry.entry.author;
+            let entry_author = active_entry.entry.author.clone();
 
             let best_entry = best_by_category.entry(cat_idx).or_insert((weight, vec![]));
 
@@ -142,7 +143,9 @@ fn solve_round<'manifest, 'round>(
     // Award points to authors with best entries in each category.
     for (_cat_idx, (_best_weight, authors)) in best_by_category {
         for author in authors {
-            *points_by_author.entry(author.to_owned()).or_insert(0) += 1;
+            // Note: we cannot use a borrowed author here because the author borrow
+            // has 'round lifetime but points_by_author requires a longer lifetime.
+            *points_by_author.entry(author.into_owned()).or_insert(0) += 1;
         }
     }
 }
@@ -197,34 +200,88 @@ fn calculate_weight(content: &str) -> f64 {
 }
 
 /// An entry under evaluation as part of a round.
-struct ActiveEntry<'doc> {
-    entry: Entry<'doc>,
+struct ActiveEntry<'json> {
+    entry: Entry<'json>,
     is_disqualified: bool,
 }
 
 #[derive(Deserialize)]
-struct Manifest<'doc> {
+struct Manifest<'json> {
     #[serde(borrow)]
-    categories: Vec<Category<'doc>>,
+    categories: Vec<Category<'json>>,
     #[serde(borrow)]
-    rounds: Vec<&'doc Path>,
+    rounds: Vec<Cow<'json, Path>>,
 }
 
 #[derive(Deserialize)]
-struct Category<'doc> {
+struct Category<'json> {
     #[serde(borrow)]
-    keywords: Vec<&'doc str>,
+    keywords: Vec<Cow<'json, str>>,
 }
 
 #[derive(Deserialize)]
-struct Round<'doc> {
+struct Round<'json> {
     #[serde(borrow)]
-    entries: Vec<Entry<'doc>>,
+    entries: Vec<Entry<'json>>,
 }
 
 #[derive(Deserialize)]
-struct Entry<'doc> {
-    author: &'doc str,
-    title: &'doc str,
-    contents: String,
+struct Entry<'json> {
+    #[serde(borrow)]
+    author: Cow<'json, str>,
+    #[serde(borrow)]
+    title: Cow<'json, str>,
+    #[serde(borrow)]
+    contents: Cow<'json, str>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_borrowing() {
+        let workspace_root = find_workspace_root();
+        let data_dir = workspace_root.join("data");
+        let manifest_path = data_dir.join("manifest.json");
+
+        let manifest_json =
+            fs::read_to_string(&manifest_path).expect("Failed to read manifest.json");
+        validate_borrowing_manifest(&manifest_json);
+
+        let round_path = data_dir.join("round_0.json");
+        let round_json = fs::read_to_string(&round_path).expect("Failed to read round file");
+        validate_borrowing_round(&round_json);
+    }
+
+    fn validate_borrowing_manifest<'a>(manifest_json: &'a str) {
+        let manifest: Manifest = serde_json::from_str(manifest_json).unwrap();
+
+        let keyword = manifest
+            .categories
+            .first()
+            .unwrap()
+            .keywords
+            .first()
+            .unwrap();
+
+        let round_path = manifest.rounds.first().unwrap();
+
+        // We just state facts here - this is what serde_json gives us.
+        // serde_json is not capable of deserializing into a Vec of borrowed Cow.
+        assert!(matches!(keyword, Cow::Owned(_)));
+        assert!(matches!(round_path, Cow::Owned(_)));
+    }
+
+    fn validate_borrowing_round<'a>(round_json: &'a str) {
+        let round: Round = serde_json::from_str(round_json).unwrap();
+
+        let entry = round.entries.first().unwrap();
+
+        // We just state facts here - this is what serde_json gives us.
+        assert!(matches!(entry.author, Cow::Borrowed(_)));
+        assert!(matches!(entry.title, Cow::Borrowed(_)));
+        // Contents must be transformed first (newlines unescaped), so cannot be borrowed.
+        assert!(matches!(entry.contents, Cow::Owned(_)));
+    }
 }
