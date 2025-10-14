@@ -88,7 +88,7 @@ const MAX_ENTRIES_PER_ROUND: usize = 2000;
 const MIN_ENTRY_WORDS: usize = 50;
 const MAX_ENTRY_WORDS: usize = 500;
 const MIN_CATEGORY_KEYWORDS: usize = 1;
-const MAX_CATEGORY_KEYWORDS: usize = 5;
+const MAX_CATEGORY_KEYWORDS: usize = 500;
 const LINE_LENGTH_WORDS: usize = 32;
 
 /// How many words there are in the vocabulary we use.
