@@ -1,6 +1,6 @@
 use alloc_tracker::{Allocator, Session};
 use criterion::{Criterion, criterion_group, criterion_main};
-use poetry_contest::{v01_naive, v02_borrow_document};
+use poetry_contest::{v01_naive, v02_borrow_document, v03_borrow_more};
 
 #[global_allocator]
 static ALLOCATOR: Allocator<std::alloc::System> = Allocator::system();
@@ -28,6 +28,15 @@ fn entrypoint(c: &mut Criterion) {
             let _span = allocs_op.measure_thread();
 
             v02_borrow_document::solve();
+        });
+    });
+
+    let allocs_op = allocs.operation("v03_borrow_more");
+    group.bench_function("v03_borrow_more", |b| {
+        b.iter(|| {
+            let _span = allocs_op.measure_thread();
+
+            v03_borrow_more::solve();
         });
     });
 
