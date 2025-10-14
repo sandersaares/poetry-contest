@@ -3,6 +3,7 @@ use std::path::PathBuf;
 pub mod v01_naive;
 pub mod v02_borrow_document;
 pub mod v03_borrow_more;
+pub mod v04_reserve_and_reuse;
 
 pub fn find_workspace_root() -> PathBuf {
     let mut current = std::env::current_dir().expect("Failed to get current directory");
