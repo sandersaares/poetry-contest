@@ -81,7 +81,7 @@ fn main() {
 }
 
 const ROUND_COUNT: usize = 500;
-const CATEGORY_COUNT: usize = 20;
+const CATEGORY_COUNT: usize = 50;
 const AUTHOR_COUNT: usize = 250;
 const MIN_ENTRIES_PER_ROUND: usize = 500;
 const MAX_ENTRIES_PER_ROUND: usize = 2000;
