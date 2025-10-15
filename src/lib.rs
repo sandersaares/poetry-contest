@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
 pub mod v01_simple;
-pub mod v02_borrow_document;
-pub mod v03_borrow_more;
-pub mod v04_reserve_and_reuse;
-pub mod v05_raw_contents;
-pub mod v06_reuse_more;
-pub mod v07_faster_maps;
+pub mod v02_less_cloning;
+pub mod v03_borrow_document;
+pub mod v04_borrow_more;
+pub mod v05_reserve_and_reuse;
+pub mod v06_raw_contents;
+pub mod v07_reuse_more;
+pub mod v08_faster_maps;
 
 pub fn find_workspace_root() -> PathBuf {
     let mut current = std::env::current_dir().expect("Failed to get current directory");
