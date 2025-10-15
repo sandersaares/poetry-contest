@@ -13,8 +13,8 @@ fn entrypoint(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("memory");
 
-    // Some of the implementations can be slow, so let's not take too many samples.
-    group.sample_size(10);
+    // This can be a bit slow, so let's take not too many samples.
+    group.sample_size(25);
 
     let allocs_op = allocs.operation("v01_naive");
     group.bench_function("v01_naive", |b| {
