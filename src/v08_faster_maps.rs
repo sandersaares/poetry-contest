@@ -125,7 +125,7 @@ fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u
 fn solve_round<'manifest, 'round>(
     manifest: &'manifest Manifest<'manifest>,
     round_json: &'round str,
-    keyword_to_categories: &'_ FzStringMap<Box<str>, Vec<usize>>,
+    keyword_to_categories: &FzStringMap<Box<str>, Vec<usize>>,
     points_by_author: &mut HashMap<String, u64>,
 ) {
     let round: Round<'round> = serde_json::from_str(&round_json).unwrap();
