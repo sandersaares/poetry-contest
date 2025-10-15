@@ -1,7 +1,7 @@
 use alloc_tracker::{Allocator, Session};
 use criterion::{Criterion, criterion_group, criterion_main};
 use poetry_contest::{
-    v01_naive, v02_borrow_document, v03_borrow_more, v04_reserve_and_reuse, v05_raw_contents,
+    v01_simple, v02_borrow_document, v03_borrow_more, v04_reserve_and_reuse, v05_raw_contents,
     v06_reuse_more, v07_faster_maps,
 };
 
@@ -16,12 +16,12 @@ fn entrypoint(c: &mut Criterion) {
     // This can be a bit slow, so let's take not too many samples.
     group.sample_size(25);
 
-    let allocs_op = allocs.operation("v01_naive");
-    group.bench_function("v01_naive", |b| {
+    let allocs_op = allocs.operation("v01_simple");
+    group.bench_function("v01_simple", |b| {
         b.iter(|| {
             let _span = allocs_op.measure_thread();
 
-            v01_naive::solve();
+            v01_simple::solve();
         });
     });
 
