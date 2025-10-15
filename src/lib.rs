@@ -6,6 +6,7 @@ pub mod v03_borrow_more;
 pub mod v04_reserve_and_reuse;
 pub mod v05_raw_contents;
 pub mod v06_reuse_more;
+pub mod v07_frozen;
 
 pub fn find_workspace_root() -> PathBuf {
     let mut current = std::env::current_dir().expect("Failed to get current directory");
