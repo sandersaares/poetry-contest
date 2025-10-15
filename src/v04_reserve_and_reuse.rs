@@ -261,21 +261,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validate_borrowing() {
+    fn validate_cow_borrowing() {
         let workspace_root = find_workspace_root();
         let data_dir = workspace_root.join("data");
         let manifest_path = data_dir.join("manifest.json");
 
         let manifest_json =
             fs::read_to_string(&manifest_path).expect("Failed to read manifest.json");
-        validate_borrowing_manifest(&manifest_json);
+        validate_cow_borrowing_manifest(&manifest_json);
 
         let round_path = data_dir.join("round_0.json");
         let round_json = fs::read_to_string(&round_path).expect("Failed to read round file");
-        validate_borrowing_round(&round_json);
+        validate_cow_borrowing_round(&round_json);
     }
 
-    fn validate_borrowing_manifest<'a>(manifest_json: &'a str) {
+    fn validate_cow_borrowing_manifest<'a>(manifest_json: &'a str) {
         let manifest: Manifest = serde_json::from_str(manifest_json).unwrap();
 
         let keyword = manifest
@@ -292,7 +292,7 @@ mod tests {
         assert!(matches!(round_path, Cow::Borrowed(_)));
     }
 
-    fn validate_borrowing_round<'a>(round_json: &'a str) {
+    fn validate_cow_borrowing_round<'a>(round_json: &'a str) {
         let round: Round = serde_json::from_str(round_json).unwrap();
 
         let entry = round.entries.first().unwrap();

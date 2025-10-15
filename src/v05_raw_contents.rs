@@ -1,11 +1,14 @@
 use std::{
     borrow::Cow,
+    cell::RefCell,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
+use serde_json::value::RawValue;
+use serde_with::{BorrowCow, serde_as};
 
 use crate::find_workspace_root;
 
@@ -60,9 +63,18 @@ pub fn solve() -> u64 {
 fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u64 {
     let manifest: Manifest = serde_json::from_str(&manifest_json).unwrap();
 
+    // This will overshoot a bit if multiple categories share the same keyword. That's fine - good
+    // enough. The main thing we want to avoid is repeated incremental growth of the collection.
+    let keyword_count = manifest
+        .categories
+        .iter()
+        .map(|cat| cat.keywords.len())
+        .sum::<usize>();
+
     // Build a HashMap for efficient keyword lookup
     // Key: keyword, Value: list of category indices that contain this keyword
-    let mut keyword_to_categories: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut keyword_to_categories: HashMap<&str, Vec<usize>> =
+        HashMap::with_capacity(keyword_count);
     for (cat_idx, category) in manifest.categories.iter().enumerate() {
         for keyword in &category.keywords {
             keyword_to_categories
@@ -75,10 +87,16 @@ fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u
     let mut points_by_author: HashMap<String, u64> = HashMap::new();
 
     for round_path in &manifest.rounds {
-        let round_file_path = data_dir.join(&round_path);
+        let as_path = Path::new(&**round_path);
+        let round_file_path = data_dir.join(&as_path);
         let round_json = fs::read_to_string(&round_file_path).expect("Failed to read round file");
 
-        solve_round(&round_json, &keyword_to_categories, &mut points_by_author);
+        solve_round(
+            &manifest,
+            &round_json,
+            &keyword_to_categories,
+            &mut points_by_author,
+        );
     }
 
     // Calculate final output: total score of all authors.
@@ -86,6 +104,7 @@ fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u
 }
 
 fn solve_round<'manifest, 'round>(
+    manifest: &'manifest Manifest<'manifest>,
     round_json: &'round str,
     keyword_to_categories: &'_ HashMap<&str, Vec<usize>>,
     points_by_author: &mut HashMap<String, u64>,
@@ -95,14 +114,16 @@ fn solve_round<'manifest, 'round>(
 
     // Key: category index.
     // Value: (best weight, list of authors with that weight).
-    let mut best_by_category: HashMap<usize, (f64, Vec<Cow<'round, str>>)> = HashMap::new();
+    let mut best_by_category: HashMap<usize, (f64, Vec<Cow<'round, str>>)> =
+        HashMap::with_capacity(manifest.categories.len());
+
+    // We reuse this between entries to avoid repeated allocations.
+    let mut matched_categories = Vec::new();
 
     // For each active entry, determine its categories and weight, and update
     // the best_by_category map accordingly.
     for active_entry in active_entries {
         let words = active_entry.entry.title.split_whitespace();
-
-        let mut matched_categories = Vec::new();
 
         // Use the keyword lookup HashMap for efficient categorization
         for word in words {
@@ -119,9 +140,12 @@ fn solve_round<'manifest, 'round>(
             continue;
         }
 
-        let weight = calculate_weight(&active_entry.entry.contents);
+        let Some(weight) = calculate_weight(&active_entry.entry.contents) else {
+            // Entry disqualified.
+            continue;
+        };
 
-        for cat_idx in matched_categories {
+        for cat_idx in matched_categories.drain(..) {
             let entry_author = active_entry.entry.author.clone();
 
             let best_entry = best_by_category.entry(cat_idx).or_insert((weight, vec![]));
@@ -156,14 +180,19 @@ fn parse_entries<'round>(round: Round<'round>) -> Vec<ActiveEntry<'round>> {
     let mut remaining_entries = round.entries;
 
     while let Some(entry) = remaining_entries.pop() {
-        // Verify that the entry is not disqualified due to length or emptiness.
-        if entry.contents.len() > 1000 {
-            continue;
-        }
+        let len = calculate_json_string_length(&entry.contents);
 
-        if entry.contents.trim().is_empty() {
-            continue;
-        }
+        match len {
+            None => {
+                // Disqualified due to invalid format or escape sequence.
+                continue;
+            }
+            Some(len) if len > 1000 => {
+                // Disqualified due to length.
+                continue;
+            }
+            _ => {}
+        };
 
         // Verify that the entry is not disqualified due to duplication.
         // Note: disqualified sets can consist of more than 2 duplicates, so we
@@ -172,7 +201,7 @@ fn parse_entries<'round>(round: Round<'round>) -> Vec<ActiveEntry<'round>> {
         // removed later.
         if let Some(existing) = active_entries
             .iter_mut()
-            .find(|existing| existing.entry.contents == entry.contents)
+            .find(|existing| existing.entry.contents.get() == entry.contents.get())
         {
             existing.is_disqualified = true;
 
@@ -192,11 +221,88 @@ fn parse_entries<'round>(round: Round<'round>) -> Vec<ActiveEntry<'round>> {
     active_entries
 }
 
-fn calculate_weight(content: &str) -> f64 {
-    let length = content.len() as f64;
-    let word_count = content.split_whitespace().count() as f64;
+thread_local! {
+    // We reuse this buffer for decoding RawValue contents to avoid repeated allocations.
+    // Entries greater than 1000 bytes long (decoded) are disqualified, so we only need 100 bytes.
+    static DECODE_BUFFER: RefCell<[u8; 1000]> = RefCell::new([0; 1000]);
+}
 
-    length / word_count
+fn calculate_json_string_length(raw_content: &RawValue) -> Option<usize> {
+    let raw = raw_content.get();
+
+    // We expect it to be a quoted JSON string.
+    if raw.len() < 2 || !raw.starts_with('"') || !raw.ends_with('"') {
+        return None;
+    }
+
+    // Remove the quotes.
+    let raw = &raw[1..raw.len() - 1];
+
+    let unescaped = json_escape::unescape(raw);
+
+    let mut len = 0;
+
+    for chunk in unescaped {
+        let Ok(chunk) = chunk else {
+            // Disqualified due to invalid escape sequence.
+            return None;
+        };
+
+        len += chunk.len();
+    }
+
+    Some(len)
+}
+
+/// Returns None if the entry is disqualified due to length or emptiness.
+fn calculate_weight(raw_content: &RawValue) -> Option<f64> {
+    let raw = raw_content.get();
+
+    // We expect it to be a quoted JSON string.
+    if raw.len() < 2 || !raw.starts_with('"') || !raw.ends_with('"') {
+        return None;
+    }
+
+    // Remove the quotes.
+    let raw = &raw[1..raw.len() - 1];
+
+    let unescaped = json_escape::unescape(raw);
+
+    DECODE_BUFFER.with_borrow_mut(|buffer| {
+        // How much of the decode buffer is already used.
+        // If we ever overflow the buffer, the entry is disqualified due to length.
+        let mut len = 0;
+
+        // We first collect (copy) all the bytes into our input buffer.
+        for chunk in unescaped {
+            let Ok(chunk) = chunk else {
+                // Disqualified due to invalid escape sequence.
+                return None;
+            };
+
+            if len + chunk.len() > buffer.len() {
+                // Disqualified due to length.
+                return None;
+            }
+
+            buffer[len..len + chunk.len()].copy_from_slice(chunk);
+            len += chunk.len();
+        }
+
+        let Ok(content) = str::from_utf8(&buffer[..len]) else {
+            // Disqualified due to invalid UTF-8.
+            return None;
+        };
+
+        if content.trim().is_empty() {
+            // Disqualified due to emptiness.
+            return None;
+        }
+
+        let length = content.len() as f64;
+        let word_count = content.split_whitespace().count() as f64;
+        Some(length / word_count)
+    })
 }
 
 /// An entry under evaluation as part of a round.
@@ -205,17 +311,20 @@ struct ActiveEntry<'json> {
     is_disqualified: bool,
 }
 
+#[serde_as]
 #[derive(Deserialize)]
 struct Manifest<'json> {
     #[serde(borrow)]
     categories: Vec<Category<'json>>,
-    #[serde(borrow)]
-    rounds: Vec<Cow<'json, Path>>,
+
+    #[serde_as(as = "Vec<BorrowCow>")]
+    rounds: Vec<Cow<'json, str>>,
 }
 
+#[serde_as]
 #[derive(Deserialize)]
 struct Category<'json> {
-    #[serde(borrow)]
+    #[serde_as(as = "Vec<BorrowCow>")]
     keywords: Vec<Cow<'json, str>>,
 }
 
@@ -229,10 +338,12 @@ struct Round<'json> {
 struct Entry<'json> {
     #[serde(borrow)]
     author: Cow<'json, str>,
+
     #[serde(borrow)]
     title: Cow<'json, str>,
-    #[serde(borrow)]
-    contents: Cow<'json, str>,
+
+    // This will be a raw JSON string, quotes included, like: "Some content\nsecond line"
+    contents: &'json RawValue,
 }
 
 #[cfg(test)]
@@ -267,10 +378,8 @@ mod tests {
 
         let round_path = manifest.rounds.first().unwrap();
 
-        // We just state facts here - this is what serde_json gives us.
-        // serde_json is not capable of deserializing into a Vec of borrowed Cow.
-        assert!(matches!(keyword, Cow::Owned(_)));
-        assert!(matches!(round_path, Cow::Owned(_)));
+        assert!(matches!(keyword, Cow::Borrowed(_)));
+        assert!(matches!(round_path, Cow::Borrowed(_)));
     }
 
     fn validate_cow_borrowing_round<'a>(round_json: &'a str) {
@@ -278,10 +387,7 @@ mod tests {
 
         let entry = round.entries.first().unwrap();
 
-        // We just state facts here - this is what serde_json gives us.
         assert!(matches!(entry.author, Cow::Borrowed(_)));
         assert!(matches!(entry.title, Cow::Borrowed(_)));
-        // Contents must be transformed first (newlines unescaped), so cannot be borrowed.
-        assert!(matches!(entry.contents, Cow::Owned(_)));
     }
 }
