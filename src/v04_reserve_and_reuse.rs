@@ -160,9 +160,17 @@ fn solve_round<'manifest, 'round>(
     // Award points to authors with best entries in each category.
     for (_cat_idx, (_best_weight, authors)) in best_by_category {
         for author in authors {
-            // Note: we cannot use a borrowed author here because the author borrow
-            // has 'round lifetime but points_by_author requires a longer lifetime.
-            *points_by_author.entry(author.into_owned()).or_insert(0) += 1;
+            // Note: The author is a Cow<'round, str>, we convert it to String for storage.
+            // For lookup we use the Cow because we expect the author is typically already in
+            // the map (from previous rounds or entries). This avoids having to create a new
+            // string for every lookup - we only create owned strings for insertion.
+            if let Some(existing_entry) = points_by_author.get_mut(author.as_ref()) {
+                *existing_entry += 1;
+                continue;
+            }
+
+            // An existing entry did not exist, so insert a new entry.
+            points_by_author.insert(author.into_owned(), 1);
         }
     }
 }
