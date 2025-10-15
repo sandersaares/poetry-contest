@@ -30,19 +30,17 @@ fn run() {
 ///    exist in the scope of the entire problem.
 /// 3. Each round contains a set of entries, each entry is associated with a single author and
 ///    any number of categories (from zero to all categories).
-/// 4. If an entry is longer than 1000 bytes or has no non-whitespace characters, it is disqualified.
-/// 5. If an entry exactly equals a different entry in the same round (regardless of author),
-///    both are disqualified.
-/// 6. The weight of an entry is defined as its word density - length in bytes divided by
+/// 4. If an entry is longer than 1000 bytes or has no non-whitespace contents, it is disqualified.
+/// 5. The weight of an entry is defined as its word density - length in bytes divided by
 ///    number of words (a word is defined as a nonempty sequence of non-whitespace characters
 ///    separated by whitespace). By definition, an entry cannot have zero words (see rule 4).
-/// 7. The categories of an entry are determined by matching the keywords of a category against
+/// 6 The categories of an entry are determined by matching the keywords of a category against
 ///    the words in the title of the entry. A category matches if at least one keyword matches
 ///    a word in the title. An entry can match zero or more categories.
-/// 8. In each round, the entry with the highest weight in each category yields 1 point for its
-///    author. The same entry may yield points for multiple categories. In case of a tie, all
-///    authors with the highest weight receive 1 point. If the same author has multiple entries
-///    in the tie, they only get 1 point total for that category.
+/// 7. In each round, the entry with the highest weight in each category yields 1 point for its
+///    author. The same entry may yield points for multiple categories. In case of a tie in some
+///    category, all authors with the highest weight receive 1 point for that category. If the
+///    same author has multiple entries in the tie, they only get 1 point total for that category.
 pub fn solve() -> u64 {
     let workspace_root = find_workspace_root();
     let data_dir = workspace_root.join("data");
@@ -86,16 +84,16 @@ fn solve_round(
     points_by_author: &mut HashMap<String, u64>,
 ) {
     let round: Round = serde_json::from_str(&round_json).unwrap();
-    let active_entries = parse_entries(round);
+    let entries = parse_entries(round);
 
     // Key: category index.
     // Value: (best weight, list of authors with that weight).
     let mut best_by_category: HashMap<usize, (f64, Vec<String>)> = HashMap::new();
 
-    // For each active entry, determine its categories and weight, and update
+    // For each entry, determine its categories and weight, and update
     // the best_by_category map accordingly.
-    for active_entry in active_entries {
-        let words = active_entry.entry.title.split_whitespace();
+    for entry in entries {
+        let words = entry.title.split_whitespace();
 
         let mut matched_categories = Vec::new();
 
@@ -114,10 +112,10 @@ fn solve_round(
             continue;
         }
 
-        let weight = calculate_weight(&active_entry.entry.contents);
+        let weight = calculate_weight(&entry.contents);
 
         for cat_idx in matched_categories {
-            let entry_author = active_entry.entry.author.clone();
+            let entry_author = entry.author.clone();
 
             let best_entry = best_by_category.entry(cat_idx).or_insert((weight, vec![]));
 
@@ -143,46 +141,12 @@ fn solve_round(
     }
 }
 
-fn parse_entries(round: Round) -> Vec<ActiveEntry> {
-    let mut active_entries = Vec::<ActiveEntry>::new();
-
-    let mut remaining_entries = round.entries;
-
-    while let Some(entry) = remaining_entries.pop() {
-        // Verify that the entry is not disqualified due to length or emptiness.
-        if entry.contents.len() > 1000 {
-            continue;
-        }
-
-        if entry.contents.trim().is_empty() {
-            continue;
-        }
-
-        // Verify that the entry is not disqualified due to duplication.
-        // Note: disqualified sets can consist of more than 2 duplicates, so we
-        // cannot immediately remove the existing entry, the best we can do is skip
-        // adding the new entry and mark the existing one disqualified, so it can be
-        // removed later.
-        if let Some(existing) = active_entries
-            .iter_mut()
-            .find(|existing| existing.entry.contents == entry.contents)
-        {
-            existing.is_disqualified = true;
-
-            // Skip adding the duplicate entry.
-            continue;
-        }
-
-        active_entries.push(ActiveEntry {
-            entry,
-            is_disqualified: false,
-        });
-    }
-
-    // Remove any that were disqualified and marked for deferred removal.
-    active_entries.retain(|e| !e.is_disqualified);
-
-    active_entries
+fn parse_entries(round: Round) -> Vec<Entry> {
+    round
+        .entries
+        .into_iter()
+        .filter(|e| e.contents.len() <= 1000 && !e.contents.trim().is_empty())
+        .collect()
 }
 
 fn calculate_weight(content: &str) -> f64 {
@@ -190,12 +154,6 @@ fn calculate_weight(content: &str) -> f64 {
     let word_count = content.split_whitespace().count() as f64;
 
     length / word_count
-}
-
-/// An entry under evaluation as part of a round.
-struct ActiveEntry {
-    entry: Entry,
-    is_disqualified: bool,
 }
 
 #[derive(Deserialize)]

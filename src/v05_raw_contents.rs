@@ -38,19 +38,17 @@ fn run() {
 ///    exist in the scope of the entire problem.
 /// 3. Each round contains a set of entries, each entry is associated with a single author and
 ///    any number of categories (from zero to all categories).
-/// 4. If an entry is longer than 1000 bytes or has no non-whitespace characters, it is disqualified.
-/// 5. If an entry exactly equals a different entry in the same round (regardless of author),
-///    both are disqualified.
-/// 6. The weight of an entry is defined as its word density - length in bytes divided by
+/// 4. If an entry is longer than 1000 bytes or has no non-whitespace contents, it is disqualified.
+/// 5. The weight of an entry is defined as its word density - length in bytes divided by
 ///    number of words (a word is defined as a nonempty sequence of non-whitespace characters
 ///    separated by whitespace). By definition, an entry cannot have zero words (see rule 4).
-/// 7. The categories of an entry are determined by matching the keywords of a category against
+/// 6 The categories of an entry are determined by matching the keywords of a category against
 ///    the words in the title of the entry. A category matches if at least one keyword matches
 ///    a word in the title. An entry can match zero or more categories.
-/// 8. In each round, the entry with the highest weight in each category yields 1 point for its
-///    author. The same entry may yield points for multiple categories. In case of a tie, all
-///    authors with the highest weight receive 1 point. If the same author has multiple entries
-///    in the tie, they only get 1 point total for that category.
+/// 7. In each round, the entry with the highest weight in each category yields 1 point for its
+///    author. The same entry may yield points for multiple categories. In case of a tie in some
+///    category, all authors with the highest weight receive 1 point for that category. If the
+///    same author has multiple entries in the tie, they only get 1 point total for that category.
 pub fn solve() -> u64 {
     let workspace_root = find_workspace_root();
     let data_dir = workspace_root.join("data");
@@ -110,7 +108,7 @@ fn solve_round<'manifest, 'round>(
     points_by_author: &mut HashMap<String, u64>,
 ) {
     let round: Round<'round> = serde_json::from_str(&round_json).unwrap();
-    let active_entries = parse_entries(round);
+    let entries = parse_entries(round);
 
     // Key: category index.
     // Value: (best weight, list of authors with that weight).
@@ -120,10 +118,10 @@ fn solve_round<'manifest, 'round>(
     // We reuse this between entries to avoid repeated allocations.
     let mut matched_categories = Vec::new();
 
-    // For each active entry, determine its categories and weight, and update
+    // For each entry, determine its categories and weight, and update
     // the best_by_category map accordingly.
-    for active_entry in active_entries {
-        let words = active_entry.entry.title.split_whitespace();
+    for entry in entries {
+        let words = entry.title.split_whitespace();
 
         // Use the keyword lookup HashMap for efficient categorization
         for word in words {
@@ -140,13 +138,13 @@ fn solve_round<'manifest, 'round>(
             continue;
         }
 
-        let Some(weight) = calculate_weight(&active_entry.entry.contents) else {
+        let Some(weight) = calculate_weight(&entry.contents) else {
             // Entry disqualified.
             continue;
         };
 
         for cat_idx in matched_categories.drain(..) {
-            let entry_author = active_entry.entry.author.clone();
+            let entry_author = entry.author.clone();
 
             let best_entry = best_by_category.entry(cat_idx).or_insert((weight, vec![]));
 
@@ -174,51 +172,21 @@ fn solve_round<'manifest, 'round>(
     }
 }
 
-fn parse_entries<'round>(round: Round<'round>) -> Vec<ActiveEntry<'round>> {
-    let mut active_entries = Vec::<ActiveEntry>::new();
+fn parse_entries<'round>(round: Round<'round>) -> Vec<Entry<'round>> {
+    round
+        .entries
+        .into_iter()
+        .filter(|e| {
+            let len = calculate_json_string_length(&e.contents);
 
-    let mut remaining_entries = round.entries;
-
-    while let Some(entry) = remaining_entries.pop() {
-        let len = calculate_json_string_length(&entry.contents);
-
-        match len {
-            None => {
+            let Some(len) = len else {
                 // Disqualified due to invalid format or escape sequence.
-                continue;
-            }
-            Some(len) if len > 1000 => {
-                // Disqualified due to length.
-                continue;
-            }
-            _ => {}
-        };
+                return false;
+            };
 
-        // Verify that the entry is not disqualified due to duplication.
-        // Note: disqualified sets can consist of more than 2 duplicates, so we
-        // cannot immediately remove the existing entry, the best we can do is skip
-        // adding the new entry and mark the existing one disqualified, so it can be
-        // removed later.
-        if let Some(existing) = active_entries
-            .iter_mut()
-            .find(|existing| existing.entry.contents.get() == entry.contents.get())
-        {
-            existing.is_disqualified = true;
-
-            // Skip adding the duplicate entry.
-            continue;
-        }
-
-        active_entries.push(ActiveEntry {
-            entry,
-            is_disqualified: false,
-        });
-    }
-
-    // Remove any that were disqualified and marked for deferred removal.
-    active_entries.retain(|e| !e.is_disqualified);
-
-    active_entries
+            len <= 1000
+        })
+        .collect()
 }
 
 thread_local! {
@@ -303,12 +271,6 @@ fn calculate_weight(raw_content: &RawValue) -> Option<f64> {
         let word_count = content.split_whitespace().count() as f64;
         Some(length / word_count)
     })
-}
-
-/// An entry under evaluation as part of a round.
-struct ActiveEntry<'json> {
-    entry: Entry<'json>,
-    is_disqualified: bool,
 }
 
 #[serde_as]
