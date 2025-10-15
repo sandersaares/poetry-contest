@@ -4,6 +4,6 @@ const ITERATIONS: usize = 25;
 
 fn main() {
     for _ in 0..ITERATIONS {
-        poetry_contest::v06_reuse_more::solve();
+        poetry_contest::v07_frozen::solve();
     }
 }
