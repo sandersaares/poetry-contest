@@ -2,7 +2,7 @@ use alloc_tracker::{Allocator, Session};
 use criterion::{Criterion, criterion_group, criterion_main};
 use poetry_contest::{
     v01_naive, v02_borrow_document, v03_borrow_more, v04_reserve_and_reuse, v05_raw_contents,
-    v06_reuse_more, v07_frozen,
+    v06_reuse_more, v07_faster_maps,
 };
 
 #[global_allocator]
@@ -70,12 +70,12 @@ fn entrypoint(c: &mut Criterion) {
         });
     });
 
-    let allocs_op = allocs.operation("v07_frozen");
-    group.bench_function("v07_frozen", |b| {
+    let allocs_op = allocs.operation("v07_faster_maps");
+    group.bench_function("v07_faster_maps", |b| {
         b.iter(|| {
             let _span = allocs_op.measure_thread();
 
-            v07_frozen::solve();
+            v07_faster_maps::solve();
         });
     });
 
