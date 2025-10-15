@@ -1,5 +1,5 @@
-/// When profiling, it is important to always use a fixed number of iterations
-/// to that the results are comparable between runs.
+/// When profiling, it is important to always use a fixed number of
+/// iterations so that the results are comparable between runs.
 const ITERATIONS: usize = 25;
 
 fn main() {
