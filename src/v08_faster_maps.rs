@@ -209,7 +209,7 @@ fn parse_entries<'round>(round: Round<'round>) -> Vec<Entry<'round>> {
 
 thread_local! {
     // We reuse this buffer for decoding RawValue contents to avoid repeated allocations.
-    // Entries greater than 1000 bytes long (decoded) are disqualified, so we only need 100 bytes.
+    // Entries greater than 1000 bytes long (decoded) are disqualified, so we only need 1000 bytes.
     static DECODE_BUFFER: RefCell<[u8; 1000]> = RefCell::new([0; 1000]);
 }
 
