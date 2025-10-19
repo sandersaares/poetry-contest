@@ -7,7 +7,6 @@ use std::{
 };
 
 use foldhash::{HashMap, HashMapExt};
-use frozen_collections::FzStringMap;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_with::{BorrowCow, serde_as};
@@ -63,33 +62,23 @@ pub fn solve() -> u64 {
 fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u64 {
     let manifest: Manifest = serde_json::from_str(&manifest_json).unwrap();
 
-    // Build a FzStringMap for efficient keyword lookup
-    let mut keywords = manifest
+    // This will overshoot a bit if multiple categories share the same keyword. That's fine - good
+    // enough. The main thing we want to avoid is repeated incremental growth of the collection.
+    let keyword_count = manifest
         .categories
         .iter()
-        .flat_map(|cat| cat.keywords.iter())
-        .cloned()
-        .collect::<Vec<_>>();
+        .map(|cat| cat.keywords.len())
+        .sum::<usize>();
 
-    // The keywords list may contain duplicates - remove them.
-    keywords.sort_unstable();
-    keywords.dedup();
-
-    let keywords_to_categories_pairs = keywords
-        .iter()
-        // We assume that each keyword maps to 1 category by default. This can expand to cover more as needed.
-        .map(|kw| (kw, Vec::<usize>::with_capacity(1)))
-        .collect::<Vec<_>>();
-
+    // Build a HashMap for efficient keyword lookup
     // Key: keyword, Value: list of category indices that contain this keyword
-    let mut keyword_to_categories: FzStringMap<Box<str>, Vec<usize>> =
-        FzStringMap::new(keywords_to_categories_pairs);
-
+    let mut keyword_to_categories: HashMap<&str, Vec<usize>> =
+        HashMap::with_capacity(keyword_count);
     for (cat_idx, category) in manifest.categories.iter().enumerate() {
         for keyword in &category.keywords {
             keyword_to_categories
-                .get_mut(keyword)
-                .unwrap()
+                .entry(keyword)
+                .or_insert_with(Vec::new)
                 .push(cat_idx);
         }
     }
@@ -125,7 +114,7 @@ fn solve_inner<'manifest>(data_dir: PathBuf, manifest_json: &'manifest str) -> u
 fn solve_round<'manifest, 'round>(
     manifest: &'manifest Manifest<'manifest>,
     round_json: &'round str,
-    keyword_to_categories: &FzStringMap<Box<str>, Vec<usize>>,
+    keyword_to_categories: &HashMap<&str, Vec<usize>>,
     points_by_author: &mut HashMap<String, u64>,
 ) {
     let round: Round<'round> = serde_json::from_str(&round_json).unwrap();
